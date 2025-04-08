@@ -18,6 +18,11 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral")
 # Schema cache settings
 SCHEMA_CACHE_TTL = int(os.getenv("SCHEMA_CACHE_TTL", "3600"))  # 1 hour
 
+# Logging settings
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+LOG_FORMAT = os.getenv("LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+LOG_DIR = os.getenv("LOG_DIR", "logs")
+
 # Application settings
 APP_HOST = os.getenv("APP_HOST", "0.0.0.0")
 APP_PORT = int(os.getenv("APP_PORT", "8000"))

@@ -1,6 +1,7 @@
 import time
-from ..config import settings
+from config import settings
 from app.services.trino_service import TrinoService
+from app.logging.logger import log_schema_update, log_error
 
 class SchemaService:
     def __init__(self, trino_service=None):
@@ -36,6 +37,7 @@ class SchemaService:
                 # Get all schemas in catalog
                 cursor.execute(f"SHOW SCHEMAS FROM {catalog}")
                 schemas = [row[0] for row in cursor.fetchall()]
+                catalog_tables_count = 0
                 
                 for schema in schemas:
                     # Skip system schemas
@@ -46,6 +48,11 @@ class SchemaService:
                     try:
                         cursor.execute(f"SHOW TABLES FROM {catalog}.{schema}")
                         tables = [row[0] for row in cursor.fetchall()]
+                        schema_tables_count = len(tables)
+                        catalog_tables_count += schema_tables_count
+                        
+                        # Log schema update
+                        log_schema_update(catalog, schema, schema_tables_count)
                         
                         for table in tables:
                             # Get columns and their types
@@ -71,10 +78,14 @@ class SchemaService:
                             }
                     except Exception as e:
                         # Skip if no access or other issues
+                        log_error("schema_service", f"Error fetching tables for {catalog}.{schema}", e)
                         continue
                     
+                # Log catalog update
+                log_schema_update(catalog, None, catalog_tables_count)
+                    
         except Exception as e:
-            print(f"Error fetching schema: {str(e)}")
+            log_error("schema_service", "Error fetching schema", e)
             
         return schema_info
     
@@ -93,7 +104,7 @@ class SchemaService:
             
         except Exception as e:
             # If we can't get statistics, return empty dict
-            pass
+            log_error("schema_service", f"Error getting statistics for {catalog}.{schema}.{table}", e)
             
         return stats
     
