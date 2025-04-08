@@ -1,5 +1,5 @@
 import time
-from config import settings
+from ..config import settings
 from app.services.trino_service import TrinoService
 
 class SchemaService:

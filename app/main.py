@@ -7,7 +7,7 @@ from typing import Dict, Any
 import uvicorn
 import json
 
-from config import settings
+from .config import settings
 from app.services.trino_service import TrinoService
 from app.services.schema_service import SchemaService
 from app.services.ai_service import AIService

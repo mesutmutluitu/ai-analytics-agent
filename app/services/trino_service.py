@@ -1,5 +1,5 @@
 import trino
-from config import settings
+from ..config import settings
 
 class TrinoService:
     def __init__(self):

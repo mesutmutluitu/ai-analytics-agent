@@ -1,6 +1,6 @@
 import requests
 import json
-from config import settings
+from ..config import settings
 
 class AIService:
     def __init__(self):
