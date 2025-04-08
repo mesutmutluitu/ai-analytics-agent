@@ -1,0 +1,6 @@
+fastapi>=0.95.0
+uvicorn>=0.22.0
+trino>=0.327.0
+requests>=2.28.2
+python-dotenv>=1.0.0
+pytest>=7.3.1
