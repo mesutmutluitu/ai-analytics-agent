@@ -164,7 +164,7 @@ async def root(request: Request):
             token = auth_header.split(" ")[1]
             # Verify token
             if iam_service.verify_token(token):
-                print('Token is valid, redirect to dashboard')
+                logger.log_info("auth","Token is valid, redirect to dashboard")
                 return RedirectResponse(url="/dashboard")
         except Exception:
             print('Token is invalid, show login page')# Token is invalid, show login page
@@ -208,7 +208,7 @@ async def login(login_request: LoginRequest):
             
         # Set token in response headers
         response = JSONResponse(content=result)
-        logger.log_info("auth", f"Login response: {response}")
+        logger.log_info("auth", f"Login response: {response.body}")
         response.headers["Authorization"] = f"Bearer {result['token']}"
         return response
         
@@ -217,8 +217,6 @@ async def login(login_request: LoginRequest):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid input: {str(e)}"
         )
-    except HTTPException:
-        raise
     except Exception as e:
         logger.log_error("auth", "Login error", e)
         raise HTTPException(

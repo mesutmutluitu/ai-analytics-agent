@@ -104,6 +104,7 @@
                 
                 const data = await response.json();
                 localStorage.setItem('token', data.token);
+                //alert(data.token)
                 
                 // Redirect to dashboard with token
                 window.location.href = '/dashboard';
