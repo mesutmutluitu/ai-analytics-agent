@@ -83,6 +83,26 @@
             border-radius: 4px;
             min-height: 200px;
         }
+        .result-header {
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        .sql-container {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            min-height: 100px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            overflow-x: auto;
+        }
+        .sql-header {
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #333;
+        }
         .error {
             color: #c62828;
             margin-top: 10px;
@@ -116,70 +136,105 @@
                 <div class="status" id="ollama-status">Checking...</div>
             </div>
         </div>
+        <div id="last-checked" style="text-align: center; color: #666; margin-bottom: 20px;">Last checked: -</div>
 
         <div class="query-container">
             <textarea id="query" placeholder="Enter your query here..."></textarea>
             <button onclick="analyze()">Analyze</button>
         </div>
 
-        <div class="result-container" id="result">
-            Results will appear here...
+        <div class="sql-container">
+            <div class="sql-header">Generated SQL:</div>
+            <div id="sql-result">SQL query will appear here...</div>
+        </div>
+
+        <div class="result-container">
+            <div class="result-header">Analysis Results:</div>
+            <div id="result">Results will appear here...</div>
         </div>
     </div>
 
     <script>
-        // Check if user is authenticated
-        const token = localStorage.getItem('token');
+        // Get token from query parameters or localStorage
+        const urlParams = new URLSearchParams(window.location.search);
+        let token = urlParams.get('token');
+        
         if (!token) {
-            window.location.href = '/';
+            token = localStorage.getItem('token');
+            if (token) {
+                // Update URL with token
+                window.history.replaceState({}, '', `?token=${token}`);
+            } else {
+                // No token found, redirect to login
+                window.location.href = '/';
+            }
+        } else {
+            // Store token in localStorage
+            localStorage.setItem('token', token);
         }
 
-        // Check service status every 30 seconds
-        setInterval(checkStatus, 30000);
-        checkStatus();
-
-        async function checkStatus() {
+        // Function to update service status
+        async function updateServiceStatus() {
             try {
-                const response = await fetch('/status', {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                });
+                console.log('Checking service status...');
+                const response = await fetch(`/status?token=${token}`);
                 
                 if (!response.ok) {
-                    if (response.status === 401) {
-                        window.location.href = '/';
-                        return;
-                    }
-                    throw new Error('Failed to check status');
+                    throw new Error('Failed to fetch status');
                 }
                 
                 const data = await response.json();
+                console.log('Status response:', data);
                 
-                document.getElementById('trino-status').textContent = data.trino.status;
-                document.getElementById('trino-status').className = `status ${data.trino.status === 'online' ? 'online' : 'offline'}`;
+                // Update Trino status
+                const trinoStatus = document.getElementById('trino-status');
+                trinoStatus.textContent = data.trino.status === 'running' ? '🟢 Running' : '🔴 Down';
+                trinoStatus.className = `status ${data.trino.status}`;
                 
-                document.getElementById('memory-status').textContent = data.memory.status;
-                document.getElementById('memory-status').className = `status ${data.memory.status === 'online' ? 'online' : 'offline'}`;
+                // Update Memory status
+                const memoryStatus = document.getElementById('memory-status');
+                memoryStatus.textContent = data.memory.status === 'running' ? '🟢 Running' : '🔴 Down';
+                memoryStatus.className = `status ${data.memory.status}`;
                 
-                document.getElementById('ollama-status').textContent = data.ollama.status;
-                document.getElementById('ollama-status').className = `status ${data.ollama.status === 'online' ? 'online' : 'offline'}`;
+                // Update Ollama status
+                const ollamaStatus = document.getElementById('ollama-status');
+                ollamaStatus.textContent = data.ollama.status === 'running' ? '🟢 Running' : '🔴 Down';
+                ollamaStatus.className = `status ${data.ollama.status}`;
+                
+                // Update last checked time
+                document.getElementById('last-checked').textContent = `Last checked: ${data.timestamp}`;
                 
             } catch (error) {
-                console.error('Error checking status:', error);
+                console.error('Error updating status:', error);
+                // Set all statuses to unknown if there's an error
+                document.getElementById('trino-status').textContent = '❓ Unknown';
+                document.getElementById('memory-status').textContent = '❓ Unknown';
+                document.getElementById('ollama-status').textContent = '❓ Unknown';
+                document.getElementById('last-checked').textContent = 'Last checked: Error';
             }
         }
+        
+        // Update status immediately when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Dashboard loaded, checking service status...');
+            updateServiceStatus();
+            // Set interval for periodic updates
+            setInterval(updateServiceStatus, 30000);
+        });
 
         async function analyze() {
             const query = document.getElementById('query').value;
             const resultDiv = document.getElementById('result');
+            const sqlDiv = document.getElementById('sql-result');
             
             if (!query) {
-                resultDiv.textContent = 'Please enter a query';
+                resultDiv.textContent = 'Error: Please enter a natural language question to analyze.';
+                sqlDiv.textContent = 'Error: Please enter a question to generate SQL query.';
                 return;
             }
             
-            resultDiv.textContent = 'Analyzing...';
+            resultDiv.textContent = 'Analyzing your question...';
+            sqlDiv.textContent = 'Generating SQL query...';
             
             try {
                 const response = await fetch('/analyze', {
@@ -188,7 +243,7 @@
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${token}`
                     },
-                    body: JSON.stringify({ query })
+                    body: JSON.stringify({ question: query })
                 });
                 
                 if (!response.ok) {
@@ -197,14 +252,25 @@
                         return;
                     }
                     const error = await response.json();
-                    throw new Error(error.detail);
+                    throw new Error(error.detail || 'Unknown error occurred');
                 }
                 
                 const data = await response.json();
                 resultDiv.textContent = data.result;
+                sqlDiv.textContent = data.sql || 'No SQL query was generated.';
                 
             } catch (error) {
+                console.error('Analysis error:', error);
                 resultDiv.textContent = `Error: ${error.message}`;
+                sqlDiv.textContent = `SQL Generation Error: ${error.message}`;
+                
+                // Check if Ollama service is running
+                updateServiceStatus().then(() => {
+                    const ollamaStatus = document.getElementById('ollama-status').textContent;
+                    if (ollamaStatus.includes('Down')) {
+                        sqlDiv.textContent += '\n\nNote: Ollama service appears to be down. Please check if the service is running.';
+                    }
+                });
             }
         }
 

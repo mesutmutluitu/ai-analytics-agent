@@ -91,6 +91,8 @@
             const password = document.getElementById('password').value;
             
             try {
+                console.log('Attempting login with:', username);
+                
                 const response = await fetch('/login', {
                     method: 'POST',
                     headers: {
@@ -99,18 +101,48 @@
                     body: JSON.stringify({ username, password })
                 });
                 
+                console.log('Login response status:', response.status);
                 const data = await response.json();
+                console.log('Login response data:', data);
                 
                 if (response.ok) {
                     // Store token in localStorage
                     localStorage.setItem('token', data.token);
-                    // Redirect to dashboard
-                    window.location.href = '/dashboard';
+                    console.log('Token stored in localStorage');
+                    
+                    // Redirect to dashboard with Authorization header
+                    const headers = new Headers();
+                    headers.append('Authorization', `Bearer ${data.token}`);
+                    
+                    const dashboardResponse = await fetch('/dashboard', {
+                        headers: headers
+                    });
+                    
+                    if (dashboardResponse.ok) {
+                        // Get the dashboard HTML content
+                        const dashboardHtml = await dashboardResponse.text();
+                        
+                        // Create a new document with the dashboard content
+                        const parser = new DOMParser();
+                        const dashboardDoc = parser.parseFromString(dashboardHtml, 'text/html');
+                        
+                        // Replace current document with dashboard content
+                        document.documentElement.innerHTML = dashboardDoc.documentElement.innerHTML;
+                        
+                        // Update the URL without reloading the page
+                        window.history.pushState({}, '', '/dashboard');
+                    } else {
+                        const errorData = await dashboardResponse.json();
+                        document.getElementById('error').textContent = errorData.detail || 'Failed to access dashboard';
+                        console.error('Dashboard access failed:', errorData.detail);
+                    }
                 } else {
                     document.getElementById('error').textContent = data.detail || 'Login failed';
+                    console.error('Login failed:', data.detail);
                 }
             } catch (error) {
                 document.getElementById('error').textContent = 'An error occurred during login';
+                console.error('Login error:', error);
             }
         });
     </script>

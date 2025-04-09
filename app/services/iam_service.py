@@ -127,7 +127,7 @@ class IAMService:
         """Verify JWT token"""
         try:
             if not token:
-                raise Exception("Token is empty")
+                raise Exception("[IAM Layer] Token is empty (Component: Token Validator)")
                 
             payload = jwt.decode(
                 token,
@@ -137,18 +137,18 @@ class IAMService:
             
             # Check if token is expired
             if datetime.utcnow() > datetime.fromtimestamp(payload['exp']):
-                raise Exception("Token has expired")
+                raise Exception("[IAM Layer] Token has expired (Component: Token Validator)")
                 
             # Get user data
             user_file = self._get_user_file(payload['username'])
             if not user_file.exists():
-                raise Exception(f"User {payload['username']} not found")
+                raise Exception(f"[IAM Layer] User {payload['username']} not found (Component: User Manager)")
                 
             with open(user_file, 'r') as f:
                 user_data = json.load(f)
                 
             if not user_data.get('is_active', True):
-                raise Exception(f"User {payload['username']} is not active")
+                raise Exception(f"[IAM Layer] User {payload['username']} is not active (Component: User Manager)")
                 
             return {
                 "username": payload['username'],
@@ -156,11 +156,11 @@ class IAMService:
             }
             
         except jwt.ExpiredSignatureError:
-            raise Exception("Token has expired")
+            raise Exception("[IAM Layer] Token has expired (Component: JWT Validator)")
         except jwt.InvalidTokenError as e:
-            raise Exception(f"Invalid token format: {str(e)}")
+            raise Exception(f"[IAM Layer] Invalid token format (Component: JWT Validator) - {str(e)}")
         except Exception as e:
-            raise Exception(f"Token verification failed: {str(e)}")
+            raise Exception(f"[IAM Layer] Token verification failed (Component: {e.__class__.__name__}) - {str(e)}")
             
     def check_permission(self, user_role: str, resource: str, action: str) -> bool:
         """Check if user has permission for action on resource"""

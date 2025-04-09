@@ -50,21 +50,21 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         if not credentials:
             raise HTTPException(
                 status_code=401,
-                detail="No credentials provided (Source: Missing Authorization header)"
+                detail="[Auth Layer] No credentials provided (Component: Security Middleware)"
             )
             
         token = credentials.credentials
         if not token:
             raise HTTPException(
                 status_code=401,
-                detail="No token provided (Source: Empty token)"
+                detail="[Auth Layer] No token provided (Component: Token Validator)"
             )
             
         user = iam_service.verify_token(token)
         if not user:
             raise HTTPException(
                 status_code=401,
-                detail="Invalid token (Source: Token verification failed)"
+                detail="[Auth Layer] Invalid token (Component: IAM Service)"
             )
         return user
     except HTTPException:
@@ -73,7 +73,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         logger.log_error("auth", f"Token verification error: {str(e)}", e)
         raise HTTPException(
             status_code=401,
-            detail=f"Authentication failed (Source: {str(e)})"
+            detail=f"[Auth Layer] Authentication failed (Component: {e.__class__.__name__})"
         )
 
 @app.middleware("http")
@@ -108,6 +108,7 @@ async def log_requests(request: Request, call_next):
         # Add custom headers
         response.headers["X-Process-Time"] = str(process_time)
         response.headers["X-Request-ID"] = request_id
+        response.headers["X-Component"] = "API Gateway"
         
         return response
     except Exception as e:
@@ -118,7 +119,9 @@ async def log_requests(request: Request, call_next):
             {
                 "route": str(request.url.path),
                 "method": request.method,
-                "process_time": process_time
+                "process_time": process_time,
+                "component": "API Gateway",
+                "layer": "Middleware"
             }
         )
         raise error
@@ -156,17 +159,20 @@ async def login(request: Request):
         if not username or not password:
             raise HTTPException(
                 status_code=400,
-                detail="Username and password are required"
+                detail="[Auth Layer] Username and password are required (Component: Login Handler)"
             )
             
         result = iam_service.authenticate_user(username, password)
         if not result:
             raise HTTPException(
                 status_code=401,
-                detail="Invalid username or password"
+                detail="[Auth Layer] Invalid username or password (Component: IAM Service)"
             )
             
-        return JSONResponse(content=result)
+        # Set token in response headers
+        response = JSONResponse(content=result)
+        response.headers["Authorization"] = f"Bearer {result['token']}"
+        return response
         
     except HTTPException:
         raise
@@ -174,26 +180,59 @@ async def login(request: Request):
         logger.log_error("auth", "Login error", e)
         raise HTTPException(
             status_code=500,
-            detail="Internal server error"
+            detail=f"[Auth Layer] Internal server error (Component: Login Handler) - {str(e)}"
         )
 
 @app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard(request: Request, user: dict = Depends(get_current_user)):
+async def dashboard(request: Request):
     """Dashboard page"""
-    if not iam_service.check_permission(user["role"], "ai-analytics", "view"):
-        raise HTTPException(
-            status_code=403,
-            detail="You don't have permission to access this resource"
-        )
+    try:
+        # Get token from query parameters
+        token = request.query_params.get("token")
+        if not token:
+            # Try to get token from localStorage
+            return Jinja2Templates(directory="app/templates").TemplateResponse(
+                "dashboard.html",
+                {
+                    "request": request,
+                    "token": token
+                }
+            )
+            
+        # Verify token
+        user = iam_service.verify_token(token)
+        if not user:
+            raise HTTPException(
+                status_code=401,
+                detail="[Auth Layer] Invalid token (Component: IAM Service)"
+            )
+            
+        logger.log_info("dashboard", f"Accessing dashboard for user: {user['username']}")
         
-    return Jinja2Templates(directory="app/templates").TemplateResponse(
-        "dashboard.html",
-        {
-            "request": request,
-            "user": user,
-            "permissions": iam_service.permissions
-        }
-    )
+        if not iam_service.check_permission(user["role"], "ai-analytics", "view"):
+            raise HTTPException(
+                status_code=403,
+                detail="[Auth Layer] Permission denied (Component: Permission Checker)"
+            )
+            
+        return Jinja2Templates(directory="app/templates").TemplateResponse(
+            "dashboard.html",
+            {
+                "request": request,
+                "user": user,
+                "permissions": iam_service.permissions,
+                "token": token
+            }
+        )
+    except HTTPException as e:
+        logger.log_error("dashboard", f"Dashboard access error: {e.detail}")
+        raise
+    except Exception as e:
+        logger.log_error("dashboard", f"Unexpected error in dashboard: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"[Dashboard Layer] Internal server error (Component: Dashboard Handler) - {str(e)}"
+        )
 
 @app.post("/analyze")
 async def analyze_data(
@@ -229,64 +268,55 @@ async def analyze_data(
         # Generate query with AI
         try:
             query = ai_service.generate_query(question, schema_context)
+            logger.log_info("analyze", f"Generated SQL query: {query}")
         except Exception as e:
-            return {
-                "question": question,
-                "error": {
-                    "type": "ai_service_error",
-                    "message": str(e),
-                    "suggestion": "Please make sure Ollama service is running and try again."
-                }
-            }
-        
-        # Execute query
-        query_results = trino_service.execute_query(query)
-        
-        if "error" in query_results:
+            logger.log_error("analyze", f"Error generating query: {str(e)}", e)
             raise HTTPException(
                 status_code=500,
-                detail=query_results["error"]
+                detail=f"Error generating query: {str(e)}"
+            )
+        
+        # Execute query
+        try:
+            result = trino_service.execute_query(query)
+            logger.log_info("analyze", "Query executed successfully")
+        except Exception as e:
+            logger.log_error("analyze", f"Error executing query: {str(e)}", e)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error executing query: {str(e)}"
             )
         
         # Analyze results with AI
         try:
-            analysis = ai_service.analyze_results(
-                question, 
-                schema_context, 
-                query_results["results"]
-            )
+            analysis = ai_service.analyze_results(result, question)
+            logger.log_info("analyze", "Results analyzed successfully")
         except Exception as e:
-            return {
-                "question": question,
-                "query": query,
-                "results": query_results["results"],
-                "error": {
-                    "type": "ai_service_error",
-                    "message": str(e),
-                    "suggestion": "Please make sure Ollama service is running and try again."
-                }
-            }
+            logger.log_error("analyze", f"Error analyzing results: {str(e)}", e)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error analyzing results: {str(e)}"
+            )
         
-        # Calculate total processing time
-        total_time = time.time() - start_time
+        # Calculate processing time
+        process_time = time.time() - start_time
+        
+        # Log success
+        logger.log_info("analyze", f"Analysis completed in {process_time:.2f} seconds")
         
         return {
-            "question": question,
-            "query": query,
-            "results": query_results["results"],
-            "analysis": analysis,
-            "execution_stats": {
-                "total_time": total_time,
-                "query_execution_time": query_results.get("execution_time", 0)
-            }
+            "result": analysis,
+            "sql": query,
+            "process_time": process_time
         }
+        
     except HTTPException:
         raise
     except Exception as e:
-        logger.log_error("analysis", "Analysis error", e)
+        logger.log_error("analyze", f"Unexpected error: {str(e)}", e)
         raise HTTPException(
             status_code=500,
-            detail="Internal server error"
+            detail=f"Internal server error: {str(e)}"
         )
 
 @app.get("/health")
@@ -321,45 +351,43 @@ async def view_logs(log_type: str, lines: int = 100):
         )
 
 @app.get("/status")
-async def get_status(user: dict = Depends(get_current_user)):
+async def get_status(request: Request):
     """Get service status"""
-    if not iam_service.check_permission(user["role"], "ai-analytics", "view"):
-        raise HTTPException(
-            status_code=403,
-            detail="You don't have permission to access this resource"
-        )
-        
     try:
-        # Check Trino status
-        trino_status = "running" if trino_service.check_connection() else "down"
+        # Get token from query parameters
+        token = request.query_params.get("token")
+        if not token:
+            raise HTTPException(
+                status_code=401,
+                detail="[Auth Layer] No token provided (Component: Status Checker)"
+            )
+            
+        # Verify token
+        user = iam_service.verify_token(token)
+        if not user:
+            raise HTTPException(
+                status_code=401,
+                detail="[Auth Layer] Invalid token (Component: IAM Service)"
+            )
+            
+        # Check permissions
+        if not iam_service.check_permission(user["role"], "ai-analytics", "view"):
+            raise HTTPException(
+                status_code=403,
+                detail="[Auth Layer] Permission denied (Component: Permission Checker)"
+            )
+            
+        # Get status
+        status = status_service.get_status()
+        return status
         
-        # Check Memory status
-        memory_stats = memory_service.get_memory_stats()
-        memory_status = "running" if memory_stats["total_memories"] >= 0 else "down"
-        
-        # Check Ollama status
-        ollama_status = "running" if ai_service.check_ollama_availability() else "down"
-        
-        return {
-            "trino": {
-                "status": trino_status,
-                "message": f"Trino service is {trino_status}"
-            },
-            "memory": {
-                "status": memory_status,
-                "message": f"Memory service is {memory_status} with {memory_stats['total_memories']} memories"
-            },
-            "ollama": {
-                "status": ollama_status,
-                "message": f"Ollama service is {ollama_status}"
-            },
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
-        }
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.log_error("status", "Status check error", e)
+        logger.log_error("status", f"Status check error: {str(e)}", e)
         raise HTTPException(
             status_code=500,
-            detail="Internal server error"
+            detail=f"[Status Layer] Internal server error (Component: Status Service) - {str(e)}"
         )
 
 if __name__ == "__main__":
