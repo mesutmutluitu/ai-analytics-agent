@@ -1,126 +1,114 @@
 import time
-from config import settings
-from app.services.trino_service import TrinoService
-from app.logging.logger import log_schema_update, log_error
+import trino
+from app.config import settings
+from app.logging.logger import log_trino_query, log_trino_result, log_error
 
 class SchemaService:
-    def __init__(self, trino_service=None):
-        self.trino_service = trino_service or TrinoService()
+    def __init__(self, trino_service):
+        self.trino_service = trino_service
         self.schema_cache = {}
-        self.schema_cache_timestamp = 0
+        self.last_cache_update = 0
         
-    def get_database_schema(self, force_refresh=False):
-        """Get database schema with caching"""
+    def get_schema(self):
+        """Get database schema information"""
         current_time = time.time()
-        if (force_refresh or 
-            not self.schema_cache or 
-            current_time - self.schema_cache_timestamp > settings.SCHEMA_CACHE_TTL):
-            
-            self.schema_cache = self._fetch_schema()
-            self.schema_cache_timestamp = current_time
-            
+        if current_time - self.last_cache_update > settings.SCHEMA_CACHE_TTL:
+            self.update_schema_cache()
         return self.schema_cache
-    
-    def _fetch_schema(self):
-        """Fetch schema information from database"""
-        schema_info = {}
         
+    def update_schema_cache(self):
+        """Update the schema cache"""
         try:
-            conn = self.trino_service.connection
-            cursor = conn.cursor()
-            
             # Get all catalogs
-            cursor.execute("SHOW CATALOGS")
-            catalogs = [row[0] for row in cursor.fetchall()]
+            catalogs_query = "SHOW CATALOGS"
+            catalogs_result = self.trino_service.execute_query(catalogs_query)
             
-            for catalog in catalogs:
-                # Get all schemas in catalog
-                cursor.execute(f"SHOW SCHEMAS FROM {catalog}")
-                schemas = [row[0] for row in cursor.fetchall()]
-                catalog_tables_count = 0
+            if "error" in catalogs_result:
+                raise Exception(catalogs_result["error"])
                 
-                for schema in schemas:
-                    # Skip system schemas
-                    if schema in ['information_schema', 'sys']:
+            catalogs = [row["Catalog"] for row in catalogs_result["results"]]
+            
+            # Get schemas for each catalog
+            schemas = {}
+            for catalog in catalogs:
+                schemas_query = f"SHOW SCHEMAS FROM {catalog}"
+                schemas_result = self.trino_service.execute_query(schemas_query)
+                
+                if "error" in schemas_result:
+                    continue
+                    
+                schemas[catalog] = [row["Schema"] for row in schemas_result["results"]]
+            
+            # Get tables for each schema
+            tables = {}
+            for catalog, schema_list in schemas.items():
+                for schema in schema_list:
+                    tables_query = f"SHOW TABLES FROM {catalog}.{schema}"
+                    tables_result = self.trino_service.execute_query(tables_query)
+                    
+                    if "error" in tables_result:
                         continue
                         
-                    # Get all tables in schema
-                    try:
-                        cursor.execute(f"SHOW TABLES FROM {catalog}.{schema}")
-                        tables = [row[0] for row in cursor.fetchall()]
-                        schema_tables_count = len(tables)
-                        catalog_tables_count += schema_tables_count
-                        
-                        # Log schema update
-                        log_schema_update(catalog, schema, schema_tables_count)
-                        
-                        for table in tables:
-                            # Get columns and their types
-                            cursor.execute(f"DESCRIBE {catalog}.{schema}.{table}")
-                            columns = [(row[0], row[1], row[2] if len(row) > 2 else None) 
-                                    for row in cursor.fetchall()]
-                            
-                            # Get basic statistics
-                            table_stats = self._get_table_statistics(catalog, schema, table)
-                            
-                            if catalog not in schema_info:
-                                schema_info[catalog] = {}
-                            if schema not in schema_info[catalog]:
-                                schema_info[catalog][schema] = {}
-                            
-                            schema_info[catalog][schema][table] = {
-                                'columns': [{
-                                    'name': col[0],
-                                    'type': col[1],
-                                    'description': col[2] if col[2] else f"Column {col[0]} in table {table}"
-                                } for col in columns],
-                                'statistics': table_stats
-                            }
-                    except Exception as e:
-                        # Skip if no access or other issues
-                        log_error("schema_service", f"Error fetching tables for {catalog}.{schema}", e)
+                    tables[f"{catalog}.{schema}"] = [row["Table"] for row in tables_result["results"]]
+            
+            # Get columns for each table
+            columns = {}
+            for schema_path, table_list in tables.items():
+                for table in table_list:
+                    columns_query = f"DESCRIBE {schema_path}.{table}"
+                    columns_result = self.trino_service.execute_query(columns_query)
+                    
+                    if "error" in columns_result:
                         continue
-                    
-                # Log catalog update
-                log_schema_update(catalog, None, catalog_tables_count)
-                    
-        except Exception as e:
-            log_error("schema_service", "Error fetching schema", e)
+                        
+                    columns[f"{schema_path}.{table}"] = [
+                        {
+                            "name": row["Column"],
+                            "type": row["Type"],
+                            "extra": row["Extra"],
+                            "comment": row["Comment"]
+                        }
+                        for row in columns_result["results"]
+                    ]
             
-        return schema_info
-    
-    def _get_table_statistics(self, catalog, schema, table):
-        """Get basic statistics for a table"""
-        stats = {}
-        
-        try:
-            conn = self.trino_service.connection
-            cursor = conn.cursor()
+            self.schema_cache = {
+                "catalogs": catalogs,
+                "schemas": schemas,
+                "tables": tables,
+                "columns": columns
+            }
             
-            # Get table row count
-            cursor.execute(f"SELECT count(*) FROM {catalog}.{schema}.{table}")
-            row_count = cursor.fetchone()[0]
-            stats["row_count"] = row_count
+            self.last_cache_update = time.time()
             
         except Exception as e:
-            # If we can't get statistics, return empty dict
-            log_error("schema_service", f"Error getting statistics for {catalog}.{schema}.{table}", e)
+            error_msg = f"Error updating schema cache: {str(e)}"
+            log_error("schema_service", error_msg, e)
+            raise
             
-        return stats
-    
     def format_schema_for_prompt(self):
-        """Format schema info into a readable string for the prompt"""
-        schema_info = self.get_database_schema()
-        schema_text = []
+        """Format schema information for AI prompt"""
+        schema = self.get_schema()
         
-        for catalog, schemas in schema_info.items():
-            for schema, tables in schemas.items():
-                for table, table_info in tables.items():
-                    row_count = table_info.get('statistics', {}).get('row_count', 'unknown')
-                    schema_text.append(f"Table: {catalog}.{schema}.{table} (Rows: {row_count})")
-                    schema_text.append("Columns:")
-                    for col in table_info['columns']:
-                        schema_text.append(f"  - {col['name']} ({col['type']}): {col['description']}")
-                    schema_text.append("")
+        formatted_schema = "Database Schema Information:\n\n"
         
-        return "\n".join(schema_text)
+        for catalog in schema["catalogs"]:
+            formatted_schema += f"Catalog: {catalog}\n"
+            
+            if catalog in schema["schemas"]:
+                for schema_name in schema["schemas"][catalog]:
+                    formatted_schema += f"  Schema: {schema_name}\n"
+                    
+                    schema_path = f"{catalog}.{schema_name}"
+                    if schema_path in schema["tables"]:
+                        for table in schema["tables"][schema_path]:
+                            formatted_schema += f"    Table: {table}\n"
+                            
+                            table_path = f"{schema_path}.{table}"
+                            if table_path in schema["columns"]:
+                                for column in schema["columns"][table_path]:
+                                    formatted_schema += f"      Column: {column['name']} ({column['type']})"
+                                    if column["comment"]:
+                                        formatted_schema += f" - {column['comment']}"
+                                    formatted_schema += "\n"
+        
+        return formatted_schema
