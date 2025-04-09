@@ -66,33 +66,28 @@
 <body>
     <div class="container">
         <h1>AI Analytics Agent</h1>
-        <form id="loginForm">
+        <form id="login-form">
             <div class="form-group">
-                <label for="username">Username</label>
+                <label for="username">Username:</label>
                 <input type="text" id="username" name="username" required>
             </div>
             <div class="form-group">
-                <label for="password">Password</label>
+                <label for="password">Password:</label>
                 <input type="password" id="password" name="password" required>
             </div>
             <button type="submit">Login</button>
-            <div id="error" class="error"></div>
+            <div id="error-message" class="error-message"></div>
         </form>
     </div>
 
     <script>
-        // Clear localStorage on page load
-        localStorage.clear();
-        
-        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+        document.getElementById('login-form').addEventListener('submit', async function(e) {
             e.preventDefault();
             
             const username = document.getElementById('username').value;
             const password = document.getElementById('password').value;
             
             try {
-                console.log('Attempting login with:', username);
-                
                 const response = await fetch('/login', {
                     method: 'POST',
                     headers: {
@@ -101,48 +96,19 @@
                     body: JSON.stringify({ username, password })
                 });
                 
-                console.log('Login response status:', response.status);
-                const data = await response.json();
-                console.log('Login response data:', data);
-                
-                if (response.ok) {
-                    // Store token in localStorage
-                    localStorage.setItem('token', data.token);
-                    console.log('Token stored in localStorage');
-                    
-                    // Redirect to dashboard with Authorization header
-                    const headers = new Headers();
-                    headers.append('Authorization', `Bearer ${data.token}`);
-                    
-                    const dashboardResponse = await fetch('/dashboard', {
-                        headers: headers
-                    });
-                    
-                    if (dashboardResponse.ok) {
-                        // Get the dashboard HTML content
-                        const dashboardHtml = await dashboardResponse.text();
-                        
-                        // Create a new document with the dashboard content
-                        const parser = new DOMParser();
-                        const dashboardDoc = parser.parseFromString(dashboardHtml, 'text/html');
-                        
-                        // Replace current document with dashboard content
-                        document.documentElement.innerHTML = dashboardDoc.documentElement.innerHTML;
-                        
-                        // Update the URL without reloading the page
-                        window.history.pushState({}, '', '/dashboard');
-                    } else {
-                        const errorData = await dashboardResponse.json();
-                        document.getElementById('error').textContent = errorData.detail || 'Failed to access dashboard';
-                        console.error('Dashboard access failed:', errorData.detail);
-                    }
-                } else {
-                    document.getElementById('error').textContent = data.detail || 'Login failed';
-                    console.error('Login failed:', data.detail);
+                if (!response.ok) {
+                    const error = await response.json();
+                    document.getElementById('error-message').textContent = error.detail;
+                    return;
                 }
+                
+                const data = await response.json();
+                localStorage.setItem('token', data.token);
+                
+                // Redirect to dashboard with token
+                window.location.href = '/dashboard';
             } catch (error) {
-                document.getElementById('error').textContent = 'An error occurred during login';
-                console.error('Login error:', error);
+                document.getElementById('error-message').textContent = 'Login failed. Please try again.';
             }
         });
     </script>

@@ -1,283 +1,375 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Analytics Agent - Dashboard</title>
     <style>
         body {
             font-family: Arial, sans-serif;
             margin: 0;
             padding: 20px;
-            background: #f5f5f5;
+            background-color: #f5f5f5;
         }
         .container {
             max-width: 1200px;
             margin: 0 auto;
+            background-color: white;
             padding: 20px;
-            background: white;
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid #eee;
-        }
         .status-container {
             display: flex;
-            gap: 20px;
+            justify-content: space-between;
             margin-bottom: 20px;
             padding: 15px;
-            background: #f8f9fa;
-            border-radius: 4px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
         }
         .status-item {
-            flex: 1;
+            text-align: center;
             padding: 10px;
-            background: white;
             border-radius: 4px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            min-width: 150px;
         }
-        .status-item h3 {
-            margin: 0 0 10px 0;
-            color: #333;
+        .status-item.running {
+            background-color: #d4edda;
+            color: #155724;
         }
-        .status {
-            font-weight: bold;
+        .status-item.down {
+            background-color: #f8d7da;
+            color: #721c24;
         }
-        .status.online {
-            color: #4CAF50;
+        .status-item.unknown {
+            background-color: #fff3cd;
+            color: #856404;
         }
-        .status.offline {
-            color: #c62828;
+        .analysis-container {
+            margin-top: 20px;
         }
-        .query-container {
+        .chat-container {
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 15px;
             margin-bottom: 20px;
+            border-radius: 8px;
         }
-        textarea {
+        .message {
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .user-message {
+            background-color: #e3f2fd;
+            margin-left: 20%;
+        }
+        .agent-message {
+            background-color: #f1f1f1;
+            margin-right: 20%;
+        }
+        .questions-container {
+            margin-top: 10px;
+        }
+        .question-button {
+            display: block;
             width: 100%;
+            padding: 10px;
+            margin: 5px 0;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-align: left;
+        }
+        .question-button:hover {
+            background-color: #0056b3;
+        }
+        .input-container {
+            display: flex;
+            gap: 10px;
+        }
+        #query-input {
+            flex-grow: 1;
             padding: 10px;
             border: 1px solid #ddd;
             border-radius: 4px;
-            margin-bottom: 10px;
-            resize: vertical;
-            min-height: 100px;
         }
-        button {
+        #send-button {
             padding: 10px 20px;
-            background: #4CAF50;
+            background-color: #28a745;
             color: white;
             border: none;
             border-radius: 4px;
             cursor: pointer;
         }
-        button:hover {
-            background: #45a049;
+        #send-button:hover {
+            background-color: #218838;
         }
         .result-container {
             margin-top: 20px;
             padding: 15px;
-            background: #f8f9fa;
-            border-radius: 4px;
-            min-height: 200px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
         }
-        .result-header {
-            font-weight: bold;
-            margin-bottom: 10px;
-            color: #333;
-        }
-        .sql-container {
-            margin-top: 20px;
-            padding: 15px;
-            background: #f8f9fa;
+        .sql-query {
+            background-color: #f1f1f1;
+            padding: 10px;
             border-radius: 4px;
-            min-height: 100px;
             font-family: monospace;
-            white-space: pre-wrap;
-            overflow-x: auto;
+            margin: 10px 0;
         }
-        .sql-header {
-            font-weight: bold;
-            margin-bottom: 10px;
-            color: #333;
+        .logout-button {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
         }
-        .error {
-            color: #c62828;
-            margin-top: 10px;
-        }
-        .logout-btn {
-            background: #c62828;
-        }
-        .logout-btn:hover {
-            background: #b71c1c;
+        .logout-button:hover {
+            background-color: #c82333;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>AI Analytics Agent</h1>
-            <button class="logout-btn" onclick="logout()">Logout</button>
-        </div>
-
+        <button class="logout-button" onclick="logout()">Logout</button>
+        
+        <h1>AI Analytics Agent</h1>
+        
         <div class="status-container">
-            <div class="status-item">
-                <h3>Trino Service</h3>
-                <div class="status" id="trino-status">Checking...</div>
+            <div class="status-item" id="trino-status">
+                <h3>Trino</h3>
+                <p>Status: <span id="trino-status-text">Checking...</span></p>
             </div>
-            <div class="status-item">
-                <h3>Memory Service</h3>
-                <div class="status" id="memory-status">Checking...</div>
+            <div class="status-item" id="memory-status">
+                <h3>Memory</h3>
+                <p>Status: <span id="memory-status-text">Checking...</span></p>
             </div>
-            <div class="status-item">
-                <h3>Ollama Service</h3>
-                <div class="status" id="ollama-status">Checking...</div>
+            <div class="status-item" id="ollama-status">
+                <h3>Ollama</h3>
+                <p>Status: <span id="ollama-status-text">Checking...</span></p>
             </div>
         </div>
-        <div id="last-checked" style="text-align: center; color: #666; margin-bottom: 20px;">Last checked: -</div>
-
-        <div class="query-container">
-            <textarea id="query" placeholder="Enter your query here..."></textarea>
-            <button onclick="analyze()">Analyze</button>
-        </div>
-
-        <div class="sql-container">
-            <div class="sql-header">Generated SQL:</div>
-            <div id="sql-result">SQL query will appear here...</div>
-        </div>
-
-        <div class="result-container">
-            <div class="result-header">Analysis Results:</div>
-            <div id="result">Results will appear here...</div>
+        
+        <div class="analysis-container">
+            <div class="chat-container" id="chat-container"></div>
+            
+            <div class="questions-container" id="questions-container"></div>
+            
+            <div class="input-container">
+                <input type="text" id="query-input" placeholder="Enter your analysis request...">
+                <button id="send-button" onclick="sendQuery()">Send</button>
+            </div>
+            
+            <div class="result-container" id="result-container" style="display: none;">
+                <h3>Analysis Results</h3>
+                <div id="analysis-result"></div>
+                <h4>SQL Query</h4>
+                <div class="sql-query" id="sql-query"></div>
+            </div>
         </div>
     </div>
 
     <script>
-        // Get token from query parameters or localStorage
-        const urlParams = new URLSearchParams(window.location.search);
-        let token = urlParams.get('token');
-        
-        if (!token) {
-            token = localStorage.getItem('token');
-            if (token) {
-                // Update URL with token
-                window.history.replaceState({}, '', `?token=${token}`);
-            } else {
-                // No token found, redirect to login
+        // Check token on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                console.error('No token found, redirecting to login');
                 window.location.href = '/';
-            }
-        } else {
-            // Store token in localStorage
-            localStorage.setItem('token', token);
-        }
-
-        // Function to update service status
-        async function updateServiceStatus() {
-            try {
-                console.log('Checking service status...');
-                const response = await fetch(`/status?token=${token}`);
-                
-                if (!response.ok) {
-                    throw new Error('Failed to fetch status');
-                }
-                
-                const data = await response.json();
-                console.log('Status response:', data);
-                
-                // Update Trino status
-                const trinoStatus = document.getElementById('trino-status');
-                trinoStatus.textContent = data.trino.status === 'running' ? '🟢 Running' : '🔴 Down';
-                trinoStatus.className = `status ${data.trino.status}`;
-                
-                // Update Memory status
-                const memoryStatus = document.getElementById('memory-status');
-                memoryStatus.textContent = data.memory.status === 'running' ? '🟢 Running' : '🔴 Down';
-                memoryStatus.className = `status ${data.memory.status}`;
-                
-                // Update Ollama status
-                const ollamaStatus = document.getElementById('ollama-status');
-                ollamaStatus.textContent = data.ollama.status === 'running' ? '🟢 Running' : '🔴 Down';
-                ollamaStatus.className = `status ${data.ollama.status}`;
-                
-                // Update last checked time
-                document.getElementById('last-checked').textContent = `Last checked: ${data.timestamp}`;
-                
-            } catch (error) {
-                console.error('Error updating status:', error);
-                // Set all statuses to unknown if there's an error
-                document.getElementById('trino-status').textContent = '❓ Unknown';
-                document.getElementById('memory-status').textContent = '❓ Unknown';
-                document.getElementById('ollama-status').textContent = '❓ Unknown';
-                document.getElementById('last-checked').textContent = 'Last checked: Error';
-            }
-        }
-        
-        // Update status immediately when page loads
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('Dashboard loaded, checking service status...');
-            updateServiceStatus();
-            // Set interval for periodic updates
-            setInterval(updateServiceStatus, 30000);
-        });
-
-        async function analyze() {
-            const query = document.getElementById('query').value;
-            const resultDiv = document.getElementById('result');
-            const sqlDiv = document.getElementById('sql-result');
-            
-            if (!query) {
-                resultDiv.textContent = 'Error: Please enter a natural language question to analyze.';
-                sqlDiv.textContent = 'Error: Please enter a question to generate SQL query.';
                 return;
             }
             
-            resultDiv.textContent = 'Analyzing your question...';
-            sqlDiv.textContent = 'Generating SQL query...';
+            // Add token to all fetch requests
+            const originalFetch = window.fetch;
+            window.fetch = async function(url, options = {}) {
+                if (typeof url === 'string' && url.startsWith('/')) {
+                    options.headers = {
+                        ...options.headers,
+                        'Authorization': `Bearer ${token}`
+                    };
+                }
+                return originalFetch(url, options);
+            };
+            
+            // Initial status check
+            updateServiceStatus();
+            
+            // Set up periodic status checks
+            setInterval(updateServiceStatus, 30000);
+        });
+
+        // Add message to chat
+        function addMessage(message, isUser = false) {
+            const chatContainer = document.getElementById('chat-container');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user-message' : 'agent-message'}`;
+            messageDiv.textContent = message;
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        // Add questions to container
+        function addQuestions(questions) {
+            const container = document.getElementById('questions-container');
+            container.innerHTML = '';
+            
+            questions.forEach(question => {
+                const button = document.createElement('button');
+                button.className = 'question-button';
+                button.textContent = question;
+                button.onclick = () => sendResponse(question);
+                container.appendChild(button);
+            });
+        }
+
+        // Send initial query
+        async function sendQuery() {
+            const query = document.getElementById('query-input').value;
+            if (!query) return false;
+            
+            addMessage(query, true);
+            document.getElementById('query-input').value = '';
             
             try {
                 const response = await fetch('/analyze', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`
+                        'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ question: query })
+                    body: JSON.stringify({ query })
                 });
                 
-                if (!response.ok) {
-                    if (response.status === 401) {
-                        window.location.href = '/';
-                        return;
-                    }
-                    const error = await response.json();
-                    throw new Error(error.detail || 'Unknown error occurred');
+                if (response.status === 401) {
+                    console.error('Unauthorized, redirecting to login');
+                    window.location.href = '/';
+                    return false;
                 }
                 
-                const data = await response.json();
-                resultDiv.textContent = data.result;
-                sqlDiv.textContent = data.sql || 'No SQL query was generated.';
+                if (!response.ok) {
+                    throw new Error('Analysis failed');
+                }
                 
+                const result = await response.json();
+                
+                if (result.status === 'questions') {
+                    addQuestions(result.questions);
+                } else if (result.status === 'complete') {
+                    document.getElementById('analysis-result').textContent = result.analysis;
+                    document.getElementById('sql-query').textContent = result.sql_query;
+                    document.getElementById('result-container').style.display = 'block';
+                }
+                
+                return true;
             } catch (error) {
-                console.error('Analysis error:', error);
-                resultDiv.textContent = `Error: ${error.message}`;
-                sqlDiv.textContent = `SQL Generation Error: ${error.message}`;
-                
-                // Check if Ollama service is running
-                updateServiceStatus().then(() => {
-                    const ollamaStatus = document.getElementById('ollama-status').textContent;
-                    if (ollamaStatus.includes('Down')) {
-                        sqlDiv.textContent += '\n\nNote: Ollama service appears to be down. Please check if the service is running.';
-                    }
-                });
+                addMessage(`Error: ${error.message}`);
+                return false;
             }
         }
 
+        // Send response to question
+        async function sendResponse(response) {
+            addMessage(response, true);
+            document.getElementById('questions-container').innerHTML = '';
+            
+            try {
+                const result = await fetch('/analyze', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ response })
+                });
+                
+                if (result.status === 401) {
+                    console.error('Unauthorized, redirecting to login');
+                    window.location.href = '/';
+                    return false;
+                }
+                
+                if (!result.ok) {
+                    throw new Error('Analysis failed');
+                }
+                
+                const data = await result.json();
+                
+                if (data.status === 'questions') {
+                    addQuestions(data.questions);
+                } else if (data.status === 'complete') {
+                    document.getElementById('analysis-result').textContent = data.analysis;
+                    document.getElementById('sql-query').textContent = data.sql_query;
+                    document.getElementById('result-container').style.display = 'block';
+                }
+                
+                return true;
+            } catch (error) {
+                addMessage(`Error: ${error.message}`);
+                return false;
+            }
+        }
+
+        // Update service status
+        async function updateServiceStatus() {
+            try {
+                const response = await fetch('/status');
+
+                if (response.status === 401) {
+                    console.error('Unauthorized, redirecting to login');
+                    window.location.href = '/';
+                    return false;
+                }
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                console.log('Status response:', data);
+
+                // Update status indicators
+                document.getElementById('trino-status-text').textContent = data.trino.status;
+                document.getElementById('memory-status-text').textContent = data.memory.status;
+                document.getElementById('ollama-status-text').textContent = data.ollama.status;
+                
+                // Update status classes
+                document.getElementById('trino-status').className = `status-item ${data.trino.status.toLowerCase()}`;
+                document.getElementById('memory-status').className = `status-item ${data.memory.status.toLowerCase()}`;
+                document.getElementById('ollama-status').className = `status-item ${data.ollama.status.toLowerCase()}`;
+                
+                return true;
+            } catch (error) {
+                console.error('Error checking service status:', error);
+                document.getElementById('trino-status-text').textContent = 'Unknown';
+                document.getElementById('memory-status-text').textContent = 'Unknown';
+                document.getElementById('ollama-status-text').textContent = 'Unknown';
+                
+                document.getElementById('trino-status').className = 'status-item unknown';
+                document.getElementById('memory-status').className = 'status-item unknown';
+                document.getElementById('ollama-status').className = 'status-item unknown';
+                
+                return false;
+            }
+        }
+
+        // Logout
         function logout() {
             localStorage.removeItem('token');
             window.location.href = '/';
         }
+
+        // Handle Enter key in input
+        document.getElementById('query-input').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendQuery();
+            }
+        });
     </script>
 </body>
 </html> 
